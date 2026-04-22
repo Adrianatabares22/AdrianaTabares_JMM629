@@ -1,0 +1,1554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Where Games Are Won — NBA Shot Selection</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=DM+Mono:wght@400;500&family=Libre+Franklin:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+  :root {
+    --bg: #050505;
+    --surface: #0d0d0d;
+    --surface2: #111;
+    --border: #1e1e1e;
+    --border-light: #2a2a2a;
+    --amber: #e8912a;
+    --amber-dim: rgba(232,145,42,0.10);
+    --amber-glow: rgba(232,145,42,0.25);
+    --red: #e84444;
+    --green: #4caf7d;
+    --blue: #4a90d4;
+    --text: #f0ece4;
+    --text-muted: #888;
+    --text-dim: #444;
+    --text-body: #b8b0a8;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Libre Franklin', sans-serif;
+    font-weight: 300;
+    line-height: 1.8;
+    overflow-x: hidden;
+  }
+
+  /* GRAIN OVERLAY */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; z-index: 9999;
+    pointer-events: none;
+    opacity: 0.025;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+    background-size: 160px 160px;
+  }
+
+  /* ─── HERO ─── */
+  .hero {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 0 clamp(24px, 8vw, 120px) 80px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .hero-bg {
+    position: absolute; inset: 0; z-index: 0;
+    background:
+      radial-gradient(ellipse 70% 55% at 68% 25%, rgba(232,145,42,0.09) 0%, transparent 65%),
+      radial-gradient(ellipse 40% 30% at 20% 80%, rgba(232,145,42,0.04) 0%, transparent 60%),
+      linear-gradient(180deg, #060606 0%, #0d0d0d 100%);
+  }
+
+  /* Animated dot grid */
+  .hero-dots {
+    position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden;
+  }
+
+  .hero-dots canvas {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+  }
+
+  .hero-court-svg {
+    position: absolute; right: -4%; top: 50%;
+    transform: translateY(-50%);
+    width: 52vw; opacity: 0.04; z-index: 0; pointer-events: none;
+  }
+
+  .hero-content { position: relative; z-index: 1; max-width: 800px; }
+
+  .hero-kicker {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px; letter-spacing: 0.25em;
+    color: var(--amber); text-transform: uppercase;
+    margin-bottom: 36px;
+    display: flex; align-items: center; gap: 16px;
+    opacity: 0; animation: fadeUp 0.8s 0.2s ease forwards;
+  }
+
+  .hero-kicker::before {
+    content: '';
+    width: 32px; height: 1px; background: var(--amber); flex-shrink: 0;
+  }
+
+  h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(58px, 9.5vw, 120px);
+    font-weight: 900; line-height: 0.88;
+    letter-spacing: -0.03em; color: var(--text);
+    margin-bottom: 32px;
+    opacity: 0; animation: fadeUp 0.9s 0.35s ease forwards;
+  }
+
+  h1 em { font-style: italic; color: var(--amber); }
+
+  .hero-dek {
+    font-size: clamp(15px, 1.45vw, 18px);
+    font-weight: 300; color: #8a8280;
+    max-width: 500px; line-height: 1.85;
+    margin-bottom: 52px;
+    opacity: 0; animation: fadeUp 0.9s 0.5s ease forwards;
+  }
+
+  .byline {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px; color: var(--text-dim);
+    letter-spacing: 0.12em;
+    display: flex; gap: 0; flex-wrap: wrap;
+    opacity: 0; animation: fadeUp 0.8s 0.65s ease forwards;
+  }
+
+  .byline span {
+    padding: 0 20px;
+    border-left: 1px solid var(--border-light);
+  }
+  .byline span:first-child { padding-left: 0; border-left: none; }
+
+  .scroll-cue {
+    position: absolute; bottom: 36px; right: clamp(24px, 6vw, 80px);
+    font-family: 'DM Mono', monospace;
+    font-size: 9px; color: var(--text-dim);
+    letter-spacing: 0.22em; writing-mode: vertical-rl;
+    display: flex; align-items: center; gap: 14px; z-index: 1;
+    opacity: 0; animation: fadeIn 1s 1.2s ease forwards;
+  }
+
+  .scroll-cue::after {
+    content: ''; width: 1px; height: 56px;
+    background: linear-gradient(to bottom, var(--amber), transparent);
+    animation: scrollPulse 2.2s ease-in-out infinite;
+  }
+
+  @keyframes scrollPulse { 0%,100%{opacity:.2; transform:scaleY(0.6)} 50%{opacity:.8; transform:scaleY(1)} }
+  @keyframes fadeUp { from{opacity:0;transform:translateY(24px)} to{opacity:1;transform:none} }
+  @keyframes fadeIn { from{opacity:0} to{opacity:1} }
+
+  /* ─── PROGRESS BAR ─── */
+  .progress-bar {
+    position: fixed; top: 0; left: 0; z-index: 100;
+    height: 2px; width: 0%;
+    background: linear-gradient(to right, var(--amber), #f5c878);
+    transition: width 0.1s linear;
+  }
+
+  /* ─── STORY ─── */
+  .story {
+    max-width: 680px;
+    margin: 0 auto;
+    padding: 0 clamp(24px, 6vw, 40px);
+  }
+
+  .prose { padding: 80px 0 0; }
+
+  .prose p {
+    font-size: clamp(16px, 1.3vw, 18px);
+    color: var(--text-body);
+    line-height: 1.95;
+    margin-bottom: 26px;
+  }
+
+  .prose strong { color: var(--text); font-weight: 500; }
+  .prose em { color: #d4c8bc; }
+
+  .lede {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(22px, 2.6vw, 32px);
+    font-weight: 700; font-style: italic;
+    color: var(--text); line-height: 1.42;
+    margin-bottom: 36px;
+  }
+
+  .pull-quote {
+    margin: 56px 0;
+    padding: 28px 28px 28px 32px;
+    border-left: 2px solid var(--amber);
+    background: linear-gradient(to right, rgba(232,145,42,0.04), transparent);
+  }
+
+  .pull-quote p {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(18px, 2vw, 23px);
+    font-style: italic; color: var(--text);
+    line-height: 1.55; margin: 0 !important;
+  }
+
+  /* ─── ANIMATED COUNTER ─── */
+  .drop-stat-wrap {
+    margin: 48px 0 0;
+    border-top: 1px solid var(--border);
+    padding-top: 40px;
+  }
+
+  .drop-stat {
+    display: block;
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(72px, 11vw, 108px);
+    font-weight: 900; line-height: 1;
+    color: var(--amber); margin-bottom: 8px;
+    letter-spacing: -0.025em;
+  }
+
+  .drop-stat-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px; letter-spacing: 0.18em;
+    text-transform: uppercase; color: var(--text-muted);
+    margin-bottom: 32px; display: block;
+  }
+
+  /* ─── CONCEPTS ─── */
+  .concept {
+    margin: 36px 0;
+    padding: 28px 0;
+    border-top: 1px solid var(--border);
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    gap: 0 20px;
+    align-items: start;
+  }
+
+  .concept:last-of-type { border-bottom: 1px solid var(--border); margin-bottom: 40px; }
+
+  .concept-num {
+    font-family: 'Playfair Display', serif;
+    font-size: 42px; font-weight: 900;
+    color: rgba(232,145,42,0.18); line-height: 1;
+    padding-top: 4px;
+  }
+
+  .concept h3 {
+    font-family: 'Playfair Display', serif;
+    font-size: 20px; font-weight: 700;
+    color: var(--text); margin-bottom: 10px;
+  }
+
+  .concept p {
+    font-size: 15px; color: var(--text-muted);
+    line-height: 1.78; margin: 0;
+  }
+
+  /* ─── CHART BREAKS ─── */
+  .chart-break {
+    width: 100vw;
+    margin-left: calc(-50vw + 50%);
+    padding: 72px clamp(24px, 8vw, 120px);
+  }
+
+  .chart-break.shaded {
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .chart-caption {
+    max-width: 680px; margin: 0 auto 44px;
+  }
+
+  .chart-caption h2 {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(26px, 3.2vw, 40px);
+    font-weight: 700; line-height: 1.15;
+    letter-spacing: -0.02em; color: var(--text);
+    margin-bottom: 14px;
+  }
+
+  .chart-caption h2 em { font-style: italic; color: var(--amber); }
+
+  .chart-caption p {
+    font-size: 15px; color: var(--text-muted);
+    line-height: 1.75; max-width: 580px;
+  }
+
+  .chart-note {
+    max-width: 680px; margin: 32px auto 0;
+    font-size: 13.5px; color: var(--text-dim);
+    line-height: 1.75;
+    border-top: 1px solid var(--border);
+    padding-top: 22px;
+  }
+
+  /* ─── SHOT CHART ─── */
+  .shot-chart-layout {
+    max-width: 1020px; margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 260px;
+    gap: 36px; align-items: start;
+  }
+
+  .chart-controls {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    margin-bottom: 16px;
+  }
+
+  .ctrl-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px; letter-spacing: 0.18em;
+    text-transform: uppercase; color: var(--text-dim);
+    width: 100%; margin-top: 12px;
+  }
+
+  .ctrl-label:first-child { margin-top: 0; }
+
+  .btn {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px; letter-spacing: 0.08em;
+    padding: 7px 16px;
+    border: 1px solid var(--border-light);
+    background: transparent; color: var(--text-muted);
+    cursor: pointer; transition: all 0.18s;
+    position: relative; overflow: hidden;
+  }
+
+  .btn::before {
+    content: ''; position: absolute; inset: 0;
+    background: var(--amber); opacity: 0;
+    transition: opacity 0.18s;
+  }
+
+  .btn:hover { border-color: var(--amber); color: var(--amber); }
+  .btn.active {
+    background: var(--amber); border-color: var(--amber);
+    color: #0d0d0d; font-weight: 500;
+  }
+
+  .court-wrap {
+    background: #090909;
+    border: 1px solid var(--border);
+    position: relative; overflow: hidden;
+  }
+
+  #shot-chart { width: 100%; display: block; }
+
+  .side-panel { display: flex; flex-direction: column; }
+
+  .panel-block { padding: 18px 0; border-top: 1px solid var(--border); }
+  .panel-block:first-child { border-top: none; padding-top: 0; }
+
+  .panel-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px; letter-spacing: 0.22em;
+    text-transform: uppercase; color: var(--amber);
+    margin-bottom: 14px;
+  }
+
+  .legend-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .legend-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .legend-text { font-size: 12px; color: var(--text-muted); line-height: 1.4; }
+  .legend-text strong { color: var(--text); }
+
+  .zone-stats { display: flex; flex-direction: column; gap: 0; }
+
+  .zone-row {
+    display: grid; grid-template-columns: 1fr 54px 40px;
+    align-items: center; gap: 10px;
+    padding: 9px 0; border-bottom: 1px solid var(--border);
+  }
+
+  .zone-row:last-child { border-bottom: none; }
+  .zone-name { font-size: 11.5px; color: var(--text-muted); margin: 0; }
+  .zone-pct { font-family: 'DM Mono', monospace; font-size: 11.5px; color: var(--text); text-align: right; }
+  .zone-bar-wrap { height: 2px; background: var(--border); }
+  .zone-bar { height: 100%; background: var(--amber); transition: width 0.7s ease; }
+
+  .insight-text {
+    font-size: 12.5px; color: #b08040;
+    line-height: 1.7;
+    border-top: 1px solid var(--border);
+    padding-top: 16px; margin-top: 4px;
+    font-style: italic;
+  }
+
+  .tooltip {
+    position: absolute; background: rgba(18,18,18,0.96);
+    border: 1px solid var(--amber); color: var(--text);
+    font-family: 'DM Mono', monospace; font-size: 10.5px;
+    padding: 6px 12px; pointer-events: none;
+    opacity: 0; transition: opacity 0.12s;
+    white-space: nowrap; z-index: 10;
+    letter-spacing: 0.04em;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  }
+
+  /* ─── TREND CHARTS ─── */
+  .trend-pair {
+    max-width: 1020px; margin: 0 auto;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 40px;
+  }
+
+  .trend-box {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 28px;
+  }
+
+  .trend-box h3 {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px; letter-spacing: 0.2em;
+    text-transform: uppercase; color: var(--amber);
+    margin-bottom: 4px;
+  }
+
+  .trend-box .sub {
+    font-size: 12px; color: var(--text-dim);
+    margin-bottom: 20px; letter-spacing: 0.01em;
+  }
+
+  #trend-chart, #efficiency-chart { width: 100%; display: block; }
+
+  /* ─── ZONE COMPARE ─── */
+  .zone-compare { max-width: 680px; margin: 52px auto 0; }
+
+  .zone-compare-title {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px; letter-spacing: 0.22em;
+    text-transform: uppercase; color: var(--text-dim);
+    margin-bottom: 28px;
+  }
+
+  .zone-compare-row {
+    display: grid; grid-template-columns: 140px 1fr 52px;
+    align-items: center; gap: 16px; margin-bottom: 20px;
+  }
+
+  .zc-label { font-size: 13px; color: var(--text-muted); }
+  .zc-bars { display: flex; flex-direction: column; gap: 5px; }
+  .zc-bar-wrap { height: 5px; background: var(--border); overflow: hidden; }
+  .zc-bar { height: 100%; width: 0; transition: width 1.2s cubic-bezier(0.16, 1, 0.3, 1); }
+  .bar-04 { background: #4466aa; }
+  .bar-24 { background: var(--amber); }
+  .zc-vals { display: flex; flex-direction: column; gap: 5px; }
+  .zc-val { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text-dim); text-align: right; }
+  .zc-val.now { color: var(--amber); }
+  .zc-legend { display: flex; gap: 24px; margin-bottom: 28px; }
+  .zc-leg-item { display: flex; align-items: center; gap: 8px; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.12em; color: var(--text-dim); }
+  .zc-swatch { width: 24px; height: 3px; }
+
+  /* ─── TEAM ROWS ─── */
+  .team-row {
+    display: grid; grid-template-columns: 120px 1fr;
+    gap: 28px; align-items: start;
+    padding: 32px 0; border-top: 1px solid var(--border);
+    transition: background 0.3s;
+  }
+
+  .team-row:last-of-type { border-bottom: 1px solid var(--border); }
+
+  .team-stat {
+    font-family: 'Playfair Display', serif;
+    font-size: 54px; font-weight: 900; line-height: 1;
+    color: var(--amber); white-space: nowrap;
+    letter-spacing: -0.02em;
+  }
+
+  .team-stat span { font-size: 26px; }
+
+  .team-name {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px; letter-spacing: 0.2em;
+    text-transform: uppercase; color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+
+  .team-desc {
+    font-size: 15px; color: #9898a0;
+    line-height: 1.7; margin: 0;
+  }
+
+  /* ─── SECTION DIVIDER ─── */
+  .section-divider {
+    width: 100vw; margin-left: calc(-50vw + 50%);
+    height: 1px; background: var(--border);
+  }
+
+  /* ─── FOOTER ─── */
+  .story-footer {
+    border-top: 1px solid var(--border);
+    padding: 52px 0;
+    max-width: 680px; margin: 80px auto 0;
+    padding-left: clamp(24px, 6vw, 40px);
+    padding-right: clamp(24px, 6vw, 40px);
+  }
+
+  .story-footer p {
+    font-size: 12.5px; color: var(--text-dim);
+    line-height: 1.8; margin-bottom: 10px;
+  }
+
+  .story-footer a { color: #555; text-decoration: none; border-bottom: 1px solid var(--border); padding-bottom: 1px; }
+  .story-footer a:hover { color: var(--amber); border-color: var(--amber); }
+
+  .footer-sig {
+    display: flex; align-items: center; gap: 10px;
+    margin-top: 28px;
+    font-family: 'DM Mono', monospace;
+    font-size: 9px; letter-spacing: 0.15em;
+    text-transform: uppercase; color: var(--text-dim);
+  }
+
+  .footer-sig::before {
+    content: ''; width: 20px; height: 1px; background: var(--border);
+  }
+
+  /* ─── FADE-IN ANIMATIONS ─── */
+  .fade-in {
+    opacity: 0; transform: translateY(28px);
+    transition: opacity 0.8s ease, transform 0.8s ease;
+  }
+
+  .fade-in.visible { opacity: 1; transform: none; }
+
+  .fade-in-delay { transition-delay: 0.15s; }
+  .fade-in-delay2 { transition-delay: 0.3s; }
+
+  /* ─── RESPONSIVE ─── */
+  @media (max-width: 900px) {
+    .shot-chart-layout { grid-template-columns: 1fr; }
+    .side-panel { flex-direction: row; flex-wrap: wrap; gap: 0; }
+    .panel-block { width: 50%; padding: 16px 12px 16px 0; }
+    .trend-pair { grid-template-columns: 1fr; gap: 24px; }
+  }
+
+  @media (max-width: 640px) {
+    .chart-break { padding: 48px 20px; }
+    .team-row { grid-template-columns: 80px 1fr; gap: 16px; }
+    .team-stat { font-size: 42px; }
+    .zone-compare-row { grid-template-columns: 100px 1fr 44px; }
+    .concept { grid-template-columns: 44px 1fr; }
+    .side-panel { flex-direction: column; }
+    .panel-block { width: 100%; }
+    .byline { gap: 0; }
+    .byline span { padding: 0 14px; font-size: 9px; }
+  }
+
+  /* ─── DEAD ZONE GRAPHIC ─── */
+  .dead-zone-wrap {
+    width: 100vw;
+    margin-left: calc(-50vw + 50%);
+    padding: 72px clamp(24px, 8vw, 120px);
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .dead-zone-inner {
+    max-width: 800px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: 56px;
+    align-items: center;
+  }
+
+  .dead-zone-header { margin-bottom: 0; }
+
+  .dead-zone-header .dz-kicker {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px; letter-spacing: 0.22em;
+    text-transform: uppercase; color: var(--amber);
+    margin-bottom: 14px; display: block;
+  }
+
+  .dead-zone-header h2 {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(24px, 3vw, 34px);
+    font-weight: 700; line-height: 1.15;
+    letter-spacing: -0.02em; color: var(--text);
+    margin-bottom: 20px;
+  }
+
+  .dead-zone-header h2 em { font-style: italic; color: var(--red); }
+
+  .dz-legend { display: flex; flex-direction: column; gap: 14px; margin-top: 28px; }
+
+  .dz-leg-row { display: flex; align-items: flex-start; gap: 14px; }
+
+  .dz-swatch {
+    width: 28px; height: 14px; flex-shrink: 0;
+    margin-top: 3px; border-radius: 2px;
+  }
+
+  .dz-leg-text { font-size: 13px; color: var(--text-muted); line-height: 1.55; }
+  .dz-leg-text strong { color: var(--text); font-weight: 500; }
+
+  .dz-efg {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px; letter-spacing: 0.08em;
+    color: var(--text-dim); margin-top: 2px; display: block;
+  }
+
+  .dead-zone-court { position: relative; }
+  #dz-court { width: 100%; display: block; }
+
+  @media (max-width: 720px) {
+    .dead-zone-inner {
+      grid-template-columns: 1fr;
+      gap: 32px;
+    }
+    .dz-legend { flex-direction: row; flex-wrap: wrap; gap: 12px; }
+    .dz-leg-row { flex: 1 1 45%; }
+  }
+</style>
+</head>
+<body>
+
+<div class="progress-bar" id="progress-bar"></div>
+
+<!-- HERO -->
+<header class="hero">
+  <div class="hero-bg"></div>
+  <div class="hero-dots"><canvas id="dot-canvas"></canvas></div>
+
+  <svg class="hero-court-svg" viewBox="0 0 500 470" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="10" y="10" width="480" height="460" stroke="white" stroke-width="3" fill="none"/>
+    <line x1="10" y1="235" x2="490" y2="235" stroke="white" stroke-width="2"/>
+    <path d="M 80 10 A 170 170 0 0 1 420 10" stroke="white" stroke-width="3" fill="none"/>
+    <line x1="80" y1="10" x2="80" y2="80" stroke="white" stroke-width="2"/>
+    <line x1="420" y1="10" x2="420" y2="80" stroke="white" stroke-width="2"/>
+    <rect x="180" y="10" width="140" height="190" stroke="white" stroke-width="2" fill="none"/>
+    <circle cx="250" cy="200" r="60" stroke="white" stroke-width="2" fill="none"/>
+    <circle cx="250" cy="50" r="8" stroke="white" stroke-width="2" fill="none"/>
+  </svg>
+
+  <div class="hero-content">
+    <div class="hero-kicker">NBA Analytics · Shot Selection · 2004–2024</div>
+    <h1>Where<br>Games<br>Are <em>Won</em></h1>
+    <p class="hero-dek">Over two decades, professional basketball underwent a quiet revolution. The three-pointer went from a parlor trick to the backbone of every offense. This is the story of how the math rewrote the game.</p>
+    <div class="byline">
+      <span>Spatial Analytics</span>
+      <span>20 Seasons of Data</span>
+      <span>Shot-Level Tracking</span>
+    </div>
+  </div>
+  <div class="scroll-cue">SCROLL</div>
+</header>
+
+
+<!-- ─── STORY ─── -->
+<div class="story">
+
+  <div class="prose fade-in">
+    <p class="lede">Basketball is a spatial game. Every possession is a negotiation over territory — who controls which part of the floor, and who converts that control into points.</p>
+
+    <p>For most of the league's history, coaches and players operated on intuition and tradition. Certain shots were considered "good" because they always had been. The mid-range pull-up was the hallmark of a skilled scorer. The post-up was how big men dominated. The three-pointer was a desperation move, something you threw up when the clock was dying.</p>
+
+    <p>Then the math arrived. And it said something that nobody wanted to hear: <strong>almost everything people believed about good shot selection was wrong.</strong></p>
+
+    <p>A three-pointer at 33% accuracy generates the same expected points per attempt as a two-pointer made at 50%. This equation — so simple it fits on a napkin — quietly rewired how the smartest front offices in basketball thought about the game. Once you see it, you can't unsee it. And once a few teams acted on it, the rest had no choice but to follow.</p>
+
+    <div class="pull-quote">
+      <p>"The corner three is the same distance as a wing three but scored differently in every coach's playbook — and yet it converts at rates that rival layups when measured per expected point."</p>
+    </div>
+
+    <p>By 2024, the transformation was complete. Mid-range attempts had collapsed. The rim and the arc had taken over the floor. What looked like a stylistic shift was actually a rational response to two decades of accumulated data.</p>
+  </div>
+
+  <div class="prose fade-in fade-in-delay">
+    <p>To understand why, three ideas need to be in place.</p>
+
+    <div class="concept fade-in">
+      <div class="concept-num">01</div>
+      <div>
+        <h3>Expected Value</h3>
+        <p>A 3-pointer at 33% accuracy generates 0.99 expected points per attempt. A mid-range two at 42% generates only 0.84. That gap compounds over thousands of possessions — the equivalent of scoring several extra points per game, every game, all season.</p>
+      </div>
+    </div>
+
+    <div class="concept fade-in fade-in-delay">
+      <div class="concept-num">02</div>
+      <div>
+        <h3>Shot Quality</h3>
+        <p>Not all threes are equal. An open corner three from a 40% shooter is a fundamentally different proposition than a contested pull-up from 28 feet. "Shot quality" collapses difficulty, defender distance, and shooter skill into a single number — and that number determines whether a shot is worth taking.</p>
+      </div>
+    </div>
+
+    <div class="concept fade-in fade-in-delay2">
+      <div class="concept-num">03</div>
+      <div>
+        <h3>Spacing</h3>
+        <p>When shooters spread to the perimeter, defenders must follow — tearing open driving lanes to the rim. The threat of the three <em>creates</em> the layup. Spacing isn't a side effect of good offense; it's the mechanism that makes the whole system work.</p>
+      </div>
+    </div>
+
+    <p>Armed with these ideas, teams began asking a question nobody had asked systematically before: <em>which zones on the floor actually produce the most points per attempt?</em> The answer pointed to exactly two places — the rim and the corners. The vast territory in between turned out to be a trap.</p>
+
+  </div>
+</div>
+
+<!-- ─── DEAD ZONE GRAPHIC ─── -->
+<div class="dead-zone-wrap fade-in">
+  <div class="dead-zone-inner">
+    <div class="dead-zone-header">
+      <span class="dz-kicker">Floor value by zone</span>
+      <h2>The <em>dead zone</em> between the arc and the rim</h2>
+      <p style="font-size:15px;color:var(--text-muted);line-height:1.75;margin-bottom:0;">Every square foot of the floor has a point value. The data reveals two high-value clusters — and a vast wasteland in between where players take difficult shots for inferior returns.</p>
+      <div class="dz-legend">
+        <div class="dz-leg-row">
+          <div class="dz-swatch" style="background:rgba(76,175,125,0.75);border:1px solid rgba(76,175,125,0.4);"></div>
+          <div>
+            <div class="dz-leg-text"><strong>High value</strong> — rim &amp; corners</div>
+            <span class="dz-efg">1.05 – 1.22 pts / attempt</span>
+          </div>
+        </div>
+        <div class="dz-leg-row">
+          <div class="dz-swatch" style="background:rgba(232,68,68,0.65);border:1px solid rgba(232,68,68,0.35);"></div>
+          <div>
+            <div class="dz-leg-text"><strong>The dead zone</strong> — mid-range</div>
+            <span class="dz-efg">0.78 – 0.88 pts / attempt</span>
+          </div>
+        </div>
+        <div class="dz-leg-row">
+          <div class="dz-swatch" style="background:rgba(232,145,42,0.55);border:1px solid rgba(232,145,42,0.3);"></div>
+          <div>
+            <div class="dz-leg-text"><strong>Above-break three</strong></div>
+            <span class="dz-efg">0.95 – 1.08 pts / attempt</span>
+          </div>
+        </div>
+        <div class="dz-leg-row">
+          <div class="dz-swatch" style="background:rgba(80,80,80,0.5);border:1px solid rgba(80,80,80,0.3);"></div>
+          <div>
+            <div class="dz-leg-text"><strong>Paint (non-rim)</strong></div>
+            <span class="dz-efg">0.88 – 0.96 pts / attempt</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="dead-zone-court">
+      <svg id="dz-court" viewBox="0 0 300 320"></svg>
+    </div>
+  </div>
+</div>
+
+<div class="story">
+  <div class="prose fade-in fade-in-delay">
+    <div class="drop-stat-wrap fade-in">
+      <span class="drop-stat" id="counter-stat" data-target="-52">−52%</span>
+      <span class="drop-stat-label">drop in mid-range attempts, 2004 to 2024</span>
+    </div>
+
+    <p>That number — a 52% collapse in mid-range attempts over twenty years — is the clearest single measure of how thoroughly the data reshaped the game. It happened season by season, as teams that embraced the math outperformed those that resisted it, until resistance became untenable.</p>
+  </div>
+
+</div>
+
+<!-- ─── SHOT CHART ─── -->
+<div class="chart-break shaded fade-in" style="margin-top: 80px;">
+  <div class="chart-caption">
+    <h2>What this looks like on the <em>floor</em></h2>
+    <p>The shot chart is the purest expression of a player's offensive philosophy. Every archetype below tells the same story differently — notice what all three share: dense clusters at the rim, dots scattered along the arc, and a largely empty corridor in between.</p>
+  </div>
+
+  <div class="shot-chart-layout">
+    <div>
+      <div class="chart-controls">
+        <span class="ctrl-label">Player type</span>
+        <button class="btn active" data-player="allstar">All-Star Wing</button>
+        <button class="btn" data-player="guard">Elite Guard</button>
+        <button class="btn" data-player="center">Modern Big</button>
+        <span class="ctrl-label">Display</span>
+        <button class="btn active" data-view="dots">Shot dots</button>
+        <button class="btn" data-view="heat">Heatmap</button>
+      </div>
+      <div class="court-wrap">
+        <div class="tooltip" id="tooltip"></div>
+        <svg id="shot-chart" viewBox="0 0 500 470"></svg>
+      </div>
+    </div>
+
+    <div class="side-panel">
+      <div class="panel-block">
+        <div class="panel-label">Legend</div>
+        <div class="legend-row">
+          <div class="legend-dot" style="background:#f5a63d;"></div>
+          <span class="legend-text"><strong>Made</strong> — converted attempt</span>
+        </div>
+        <div class="legend-row">
+          <div class="legend-dot" style="background:#6ab0d4;"></div>
+          <span class="legend-text"><strong>Missed</strong> — didn't convert</span>
+        </div>
+        <div class="legend-row" style="margin-top:12px;">
+          <div style="width:52px;height:7px;background:linear-gradient(to right,#1a4a8a,#91c4e8,#f5f5f0,#f5a63d,#c0301a);flex-shrink:0;border-radius:2px;"></div>
+          <span class="legend-text" style="font-size:11px;">Heatmap: cold → hot eFG%</span>
+        </div>
+      </div>
+      <div class="panel-block">
+        <div class="panel-label">Zone efficiency</div>
+        <div class="zone-stats" id="zone-stats"></div>
+      </div>
+      <p class="insight-text" id="player-insight"></p>
+    </div>
+  </div>
+
+  <div class="chart-note">
+    What's striking isn't just where the shots are — it's where they <em>aren't</em>. The mid-range corridor, once the domain of Kobe Bryant's stepback and Dirk Nowitzki's one-legged fade, is now largely abandoned. Not because players can't make those shots. Because better options exist nearly every time.
+  </div>
+</div>
+
+
+<div class="story">
+  <div class="prose fade-in">
+    <p>Individual shot charts show the philosophy. League-wide trend data shows the reckoning. From 2004 to 2024, three-point attempt rate more than doubled — from 17% to 39% of all field goal attempts. That's not a gradual drift. It's a structural transformation, and it accelerated with every passing season as the evidence mounted.</p>
+
+    <p>The charts below show two sides of the same phenomenon: the rise of three-point volume on one hand, and the simultaneous collapse of mid-range attempts alongside a surge in rim attacks on the other. These lines don't move together by accident — they're the signature of a league that found a more efficient equilibrium and locked it in.</p>
+  </div>
+</div>
+
+
+<!-- ─── TREND CHARTS ─── -->
+<div class="chart-break fade-in" style="margin-top: 80px;">
+  <div class="chart-caption">
+    <h2>Twenty years of <em>tactical evolution</em></h2>
+  </div>
+
+  <div class="trend-pair">
+    <div class="trend-box fade-in">
+      <h3>3-Point Attempt Rate</h3>
+      <p class="sub">% of FGA from beyond the arc, 2004–2024</p>
+      <svg id="trend-chart" viewBox="0 0 420 220"></svg>
+    </div>
+    <div class="trend-box fade-in fade-in-delay">
+      <h3>Mid-Range vs. Rim Attempts</h3>
+      <p class="sub">Share of FGA by zone, 2004–2024</p>
+      <svg id="efficiency-chart" viewBox="0 0 420 220"></svg>
+    </div>
+  </div>
+
+  <div class="zone-compare fade-in fade-in-delay" id="zone-compare">
+    <p class="zone-compare-title">Shot zone shift — 2004 vs 2024</p>
+    <div class="zc-legend">
+      <div class="zc-leg-item"><div class="zc-swatch" style="background:#4466aa;"></div>2004</div>
+      <div class="zc-leg-item"><div class="zc-swatch" style="background:var(--amber);"></div>2024</div>
+    </div>
+    <div class="zone-compare-row" data-04="44" data-24="62">
+      <p class="zc-label">At the Rim</p>
+      <div class="zc-bars">
+        <div class="zc-bar-wrap"><div class="zc-bar bar-04"></div></div>
+        <div class="zc-bar-wrap"><div class="zc-bar bar-24"></div></div>
+      </div>
+      <div class="zc-vals"><span class="zc-val">22%</span><span class="zc-val now">31%</span></div>
+    </div>
+    <div class="zone-compare-row" data-04="14" data-24="38">
+      <p class="zc-label">Corner Three</p>
+      <div class="zc-bars">
+        <div class="zc-bar-wrap"><div class="zc-bar bar-04"></div></div>
+        <div class="zc-bar-wrap"><div class="zc-bar bar-24"></div></div>
+      </div>
+      <div class="zc-vals"><span class="zc-val">7%</span><span class="zc-val now">19%</span></div>
+    </div>
+    <div class="zone-compare-row" data-04="22" data-24="66">
+      <p class="zc-label">Wing / Above Break</p>
+      <div class="zc-bars">
+        <div class="zc-bar-wrap"><div class="zc-bar bar-04"></div></div>
+        <div class="zc-bar-wrap"><div class="zc-bar bar-24"></div></div>
+      </div>
+      <div class="zc-vals"><span class="zc-val">11%</span><span class="zc-val now">33%</span></div>
+    </div>
+    <div class="zone-compare-row" data-04="72" data-24="28">
+      <p class="zc-label">Mid-Range</p>
+      <div class="zc-bars">
+        <div class="zc-bar-wrap"><div class="zc-bar bar-04"></div></div>
+        <div class="zc-bar-wrap"><div class="zc-bar bar-24"></div></div>
+      </div>
+      <div class="zc-vals"><span class="zc-val">36%</span><span class="zc-val now">14%</span></div>
+    </div>
+  </div>
+
+  <div class="chart-note">
+    The corner three — which barely registered as a strategic concept in 2004 — nearly tripled its share of attempts over two decades. Those attempts came directly out of the mid-range, which collapsed from more than a third of all shots to barely a seventh.
+  </div>
+</div>
+
+
+<div class="story">
+  <div class="prose fade-in">
+    <p>The trend isn't uniform. Teams arrived at these conclusions at different speeds, through different paths — and the outliers are the most revealing part of the story.</p>
+
+    <p>The <strong>Golden State Warriors</strong> of 2015–19 didn't just adopt the analytics playbook; they embodied it so completely that they became the template every other franchise tried to copy. Stephen Curry and Klay Thompson stretched defenses to their breaking point, turning corner threes into what amounted to automatic points if the defense lost track of them for even a moment.</p>
+
+    <p>The <strong>Houston Rockets</strong> under Daryl Morey took it further — further than anyone thought was sustainable. In 2018 they essentially eliminated the mid-range by front-office mandate, posting a three-point attempt rate of 45% and winning 65 games. The experiment showed what pure optimization looked like at its outer limit.</p>
+
+    <p>And then there's the <strong>Denver Nuggets</strong>, who won the 2023 championship without a dominant three-point shooting profile. Built around Nikola Jokić's gravitational effect on defenses, their story is the critical counterpoint: the data doesn't mandate specific shot types, it demands <em>efficiency</em>. Jokić found it a different way.</p>
+  </div>
+</div>
+
+
+<!-- ─── TEAM COMPARISONS ─── -->
+<div class="chart-break shaded fade-in" style="margin-top: 80px;">
+  <div class="chart-caption">
+    <h2>Three teams. <em>Three answers</em> to the same question.</h2>
+    <p>How each franchise expressed the same underlying math — and what each one teaches about the limits of optimization.</p>
+  </div>
+
+  <div style="max-width:680px; margin: 0 auto;">
+    <div class="team-row fade-in">
+      <div class="team-stat">41<span>%</span></div>
+      <div>
+        <div class="team-name">Golden State Warriors · 2015–19</div>
+        <p class="team-desc">Sustained corner-three rate across a dynasty window — the highest ever maintained over multiple seasons. Curry and Thompson forced defenses into impossible rotation choices on every possession. Their spacing didn't just create shots; it created the open driving lanes that made every other part of the offense work.</p>
+      </div>
+    </div>
+    <div class="team-row fade-in fade-in-delay">
+      <div class="team-stat">45<span>%</span></div>
+      <div>
+        <div class="team-name">Houston Rockets · 2018</div>
+        <p class="team-desc">Season three-point attempt rate under Morey's "no mid-range" mandate. They won 65 games, posted the best offense in the league, then lost to the Warriors in seven. The experiment proved the theory worked. It also proved it wasn't invincible.</p>
+      </div>
+    </div>
+    <div class="team-row fade-in fade-in-delay2">
+      <div class="team-stat">1.18</div>
+      <div>
+        <div class="team-name">Denver Nuggets · 2023 Champions</div>
+        <p class="team-desc">Points per shot attempt — championship efficiency built not around three-point volume but around Jokić's unique ability to create high-quality looks for himself and everyone around him. The lesson: the data demands efficiency, not a specific shot type.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ─── FINAL THOUGHT ─── -->
+<div class="story">
+  <div class="prose fade-in">
+    <div class="pull-quote">
+      <p>"The league hasn't found a ceiling yet. As long as the three-point line stays where it is and defenders have to respect the arc, the pressure to optimize will keep pushing shot charts toward their current extremes."</p>
+    </div>
+
+    <p>Twenty years of data point in the same direction. The math behind shot selection isn't going away, and defenses haven't found a way to neutralize it that doesn't create a different problem somewhere else on the floor.</p>
+
+    <p>Basketball is beautiful precisely because it's a game of choices made under enormous pressure, in fractions of a second, in front of twenty thousand people. Data doesn't eliminate those choices. It just shows us — clearly, finally — which ones, on average, tend to work best.</p>
+  </div>
+
+  <footer class="story-footer">
+    <p>Data sourced from <a href="https://www.nba.com/stats/players/shooting">NBA Stats</a>, <a href="https://www.datacamp.com/datalab/datasets/dataset-python-nba-shooting-data">DataCamp NBA Shooting Dataset</a>, and <a href="https://databallr.com/stats">DataBallR Advanced Stats</a>. Shot frequency and efficiency figures represent approximate league averages or archetype composites based on publicly available tracking data from the 2004–2024 seasons.</p>
+    <div class="footer-sig">Produced for JMM 629 · Data Storytelling</div>
+  </footer>
+</div>
+
+
+<script>
+/* ─── PROGRESS BAR ─── */
+window.addEventListener('scroll', () => {
+  const pct = window.scrollY / (document.body.scrollHeight - window.innerHeight) * 100;
+  document.getElementById('progress-bar').style.width = Math.min(pct, 100) + '%';
+});
+
+/* ─── HERO DOT CANVAS ─── */
+(function() {
+  const canvas = document.getElementById('dot-canvas');
+  const ctx = canvas.getContext('2d');
+  let W, H, dots = [];
+
+  function resize() {
+    W = canvas.width = canvas.offsetWidth;
+    H = canvas.height = canvas.offsetHeight;
+    spawnDots();
+  }
+
+  function spawnDots() {
+    dots = [];
+    const n = Math.floor((W * H) / 12000);
+    for (let i = 0; i < n; i++) {
+      dots.push({
+        x: Math.random() * W,
+        y: Math.random() * H,
+        r: Math.random() * 1.2 + 0.3,
+        a: Math.random() * 0.35 + 0.05,
+        vx: (Math.random() - 0.5) * 0.15,
+        vy: (Math.random() - 0.5) * 0.15,
+      });
+    }
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    dots.forEach(d => {
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(232,145,42,${d.a})`;
+      ctx.fill();
+      d.x += d.vx; d.y += d.vy;
+      if (d.x < 0) d.x = W;
+      if (d.x > W) d.x = 0;
+      if (d.y < 0) d.y = H;
+      if (d.y > H) d.y = 0;
+    });
+    requestAnimationFrame(draw);
+  }
+
+  window.addEventListener('resize', resize);
+  resize();
+  draw();
+})();
+
+/* ─── COURT + SHOT CHART ─── */
+const COURT_W=500,COURT_H=470,SCALE=5;
+
+function ftToSvg(x,y){return{sx:(x+25)*SCALE,sy:(47-y)*SCALE+52};}
+
+function drawCourt(svg){
+  const g=svg.append('g').attr('class','court');
+  const defs=svg.append('defs');
+  const fg=defs.append('linearGradient').attr('id','floorGrad').attr('x1','0').attr('y1','0').attr('x2','0').attr('y2','1');
+  fg.append('stop').attr('offset','0%').attr('stop-color','#201508');
+  fg.append('stop').attr('offset','100%').attr('stop-color','#140e04');
+  svg.append('rect').attr('width',COURT_W).attr('height',COURT_H).attr('fill','url(#floorGrad)');
+
+  // Subtle wood grain lines
+  for(let i=0;i<22;i++){
+    const yy=(i/21)*COURT_H;
+    svg.append('line').attr('x1',0).attr('y1',yy).attr('x2',COURT_W).attr('y2',yy)
+      .attr('stroke','rgba(200,160,80,0.03)').attr('stroke-width',1);
+  }
+
+  const L='#c89840';
+  const ln=(x1,y1,x2,y2,op=.8)=>g.append('line').attr('x1',x1).attr('y1',y1).attr('x2',x2).attr('y2',y2).attr('stroke',L).attr('stroke-width',1.5).attr('opacity',op);
+  const tl=ftToSvg(-25,47),bl=ftToSvg(-25,-3);
+  g.append('rect').attr('x',tl.sx).attr('y',tl.sy).attr('width',COURT_W).attr('height',bl.sy-tl.sy).attr('fill','none').attr('stroke',L).attr('stroke-width',2).attr('opacity',.8);
+  const{sx:hx1,sy:hy}=ftToSvg(-25,47),{sx:hx2}=ftToSvg(25,47);ln(hx1,hy,hx2,hy);
+  const p1=ftToSvg(-8,0),p2=ftToSvg(8,19);
+  g.append('rect').attr('x',p1.sx).attr('y',p2.sy).attr('width',p2.sx-p1.sx).attr('height',p1.sy-p2.sy).attr('fill','rgba(180,130,60,0.10)').attr('stroke',L).attr('stroke-width',1.5).attr('opacity',.8);
+  const{sx:ftx,sy:fty}=ftToSvg(0,19),ftR=6*SCALE;
+  g.append('circle').attr('cx',ftx).attr('cy',fty).attr('r',ftR).attr('fill','none').attr('stroke',L).attr('stroke-width',1.5).attr('opacity',.7);
+  g.append('path').attr('d',`M ${ftx-ftR} ${fty} A ${ftR} ${ftR} 0 0 0 ${ftx+ftR} ${fty}`).attr('fill','none').attr('stroke',L).attr('stroke-width',1.5).attr('stroke-dasharray','5,4').attr('opacity',.45);
+  const{sx:bx,sy:by}=ftToSvg(0,0),raR=4*SCALE;
+  g.append('path').attr('d',`M ${bx-raR} ${by} A ${raR} ${raR} 0 0 1 ${bx+raR} ${by}`).attr('fill','none').attr('stroke',L).attr('stroke-width',1.5).attr('opacity',.7);
+  ln(bx-3*SCALE,by-5,bx+3*SCALE,by-5,.85);
+  g.append('circle').attr('cx',bx).attr('cy',by).attr('r',.75*SCALE).attr('fill','none').attr('stroke',L).attr('stroke-width',2);
+  const arcR=23.75*SCALE,cY=ftToSvg(0,14).sy;
+  const{sx:clx}=ftToSvg(-22,0),{sx:crx}=ftToSvg(22,0);
+  ln(clx,by,clx,cY,.8);ln(crx,by,crx,cY,.8);
+  g.append('path').attr('d',`M ${clx} ${cY} A ${arcR} ${arcR} 0 0 1 ${crx} ${cY}`).attr('fill','none').attr('stroke',L).attr('stroke-width',2).attr('opacity',.8);
+
+  // Zone highlights
+  g.append('rect').attr('x',p1.sx+2).attr('y',p2.sy+2).attr('width',p2.sx-p1.sx-4).attr('height',p1.sy-p2.sy-4).attr('fill','rgba(76,175,125,0.06)').attr('pointer-events','none');
+  const cH=by-cY;
+  g.append('rect').attr('x',tl.sx).attr('y',cY).attr('width',clx-tl.sx).attr('height',cH).attr('fill','rgba(232,145,42,0.06)').attr('pointer-events','none');
+  g.append('rect').attr('x',crx).attr('y',cY).attr('width',COURT_W-crx).attr('height',cH).attr('fill','rgba(232,145,42,0.06)').attr('pointer-events','none');
+
+  const addL=(t,x,y,s='9px',o=.5)=>{
+    const pos=ftToSvg(x,y);
+    g.append('text').attr('x',pos.sx).attr('y',pos.sy).text(t)
+      .attr('fill','#ddc88a').attr('opacity',o).attr('font-size',s)
+      .attr('font-family','DM Mono,monospace').attr('text-anchor','middle').attr('letter-spacing','0.07em');
+  };
+  addL('PAINT',0,9,'9px',.55);addL('MID-RANGE',0,21,'8px',.45);
+  addL('CORNER 3',-23,7,'8px',.6);addL('CORNER 3',23,7,'8px',.6);
+  addL('WING 3',-19,32,'8px',.45);addL('WING 3',19,32,'8px',.45);
+  addL('ABOVE BREAK',0,35,'8px',.45);
+}
+
+const PLAYER_DATA={
+  allstar:{
+    insight:"This wing's chart is the modern ideal: dense at the rim, scattered along the arc, nearly empty in between. The mid-range isn't a weakness — it's a deliberate absence.",
+    zones:[{name:"At the Rim",pct:68,share:28},{name:"Corner 3",pct:42,share:22},{name:"Wing 3",pct:37,share:24},{name:"Above Break 3",pct:35,share:18},{name:"Mid-Range",pct:41,share:8}],
+    shots:generateShots('allstar')
+  },
+  guard:{
+    insight:"Elite guards generate the most above-the-break threes in the league. This player creates their own shot — and does it consistently from distance.",
+    zones:[{name:"At the Rim",pct:62,share:20},{name:"Corner 3",pct:40,share:14},{name:"Wing 3",pct:36,share:20},{name:"Above Break 3",pct:38,share:32},{name:"Mid-Range",pct:44,share:14}],
+    shots:generateShots('guard')
+  },
+  center:{
+    insight:"Today's elite bigs either finish at the rim or space to the arc. The post-up mid-range that once defined the position has been nearly eliminated.",
+    zones:[{name:"At the Rim",pct:74,share:44},{name:"Corner 3",pct:36,share:16},{name:"Wing 3",pct:33,share:16},{name:"Above Break 3",pct:32,share:12},{name:"Mid-Range",pct:38,share:12}],
+    shots:generateShots('center')
+  }
+};
+
+function generateShots(type){
+  const rng=(a,b)=>Math.random()*(b-a)+a,shots=[];
+  const cfg={
+    allstar:[{z:'rim',n:50,xr:[-4,4],yr:[-1,6],m:.68},{z:'corner3L',n:30,xr:[-25,-19],yr:[-1,14],m:.42},{z:'corner3R',n:28,xr:[19,25],yr:[-1,14],m:.43},{z:'wing3L',n:28,xr:[-23,-14],yr:[14,28],m:.37},{z:'wing3R',n:30,xr:[14,23],yr:[14,28],m:.36},{z:'aboveBreak',n:32,xr:[-12,12],yr:[22,30],m:.35},{z:'midL',n:8,xr:[-14,-5],yr:[12,19],m:.41},{z:'midR',n:6,xr:[5,14],yr:[12,19],m:.40}],
+    guard:[{z:'rim',n:32,xr:[-4,4],yr:[-1,6],m:.62},{z:'corner3L',n:18,xr:[-25,-19],yr:[-1,14],m:.40},{z:'corner3R',n:16,xr:[19,25],yr:[-1,14],m:.41},{z:'wing3L',n:26,xr:[-23,-14],yr:[14,28],m:.36},{z:'wing3R',n:24,xr:[14,23],yr:[14,28],m:.35},{z:'aboveBreak',n:48,xr:[-14,14],yr:[22,32],m:.38},{z:'midL',n:14,xr:[-14,-5],yr:[12,19],m:.44},{z:'midR',n:14,xr:[5,14],yr:[12,19],m:.43}],
+    center:[{z:'rim',n:70,xr:[-4,4],yr:[-1,7],m:.74},{z:'corner3L',n:22,xr:[-25,-19],yr:[-1,14],m:.36},{z:'corner3R',n:20,xr:[19,25],yr:[-1,14],m:.35},{z:'wing3L',n:20,xr:[-23,-14],yr:[14,28],m:.33},{z:'wing3R',n:18,xr:[14,23],yr:[14,28],m:.32},{z:'aboveBreak',n:18,xr:[-10,10],yr:[22,30],m:.32},{z:'midL',n:10,xr:[-14,-5],yr:[12,19],m:.38},{z:'midR',n:10,xr:[5,14],yr:[12,19],m:.37}]
+  };
+  cfg[type].forEach(c=>{for(let i=0;i<c.n;i++)shots.push({x:rng(c.xr[0],c.xr[1]),y:rng(c.yr[0],c.yr[1]),made:Math.random()<c.m,zone:c.z});});
+  return shots;
+}
+
+let curP='allstar',curV='dots';
+
+function renderShotChart(pk,view){
+  const svg=d3.select('#shot-chart');
+  svg.selectAll('.shots-group,.heatmap-group').remove();
+  const data=PLAYER_DATA[pk],shots=data.shots;
+  const tt=document.getElementById('tooltip');
+
+  if(view==='heat'){
+    const hg=svg.append('g').attr('class','heatmap-group');
+    const gW=25,gH=25,bins={};
+    shots.forEach(s=>{
+      const pos=ftToSvg(s.x,s.y),bx=Math.floor(pos.sx/gW),by=Math.floor(pos.sy/gH),k=`${bx}_${by}`;
+      if(!bins[k])bins[k]={sx:bx*gW+gW/2,sy:by*gH+gH/2,count:0,makes:0};
+      bins[k].count++;if(s.made)bins[k].makes++;
+    });
+    const ec=d3.scaleSequential().domain([.25,.75]).interpolator(d3.interpolateRgbBasis(['#1a4a8a','#3a7fc1','#91c4e8','#f5f5f0','#f5a63d','#e05c2a','#c0301a']));
+    const mx=Math.max(...Object.values(bins).map(b=>b.count)),rs=d3.scaleSqrt().domain([0,mx]).range([0,28]);
+    Object.values(bins).filter(b=>b.count>=1).sort((a,b)=>b.count-a.count).forEach(b=>{
+      const efg=b.makes/b.count,r=rs(b.count);
+      hg.append('circle').attr('cx',b.sx).attr('cy',b.sy).attr('r',r)
+        .attr('fill',ec(efg)).attr('opacity',.75).attr('stroke','rgba(0,0,0,0.15)').attr('stroke-width',.5)
+        .on('mousemove',e=>{tt.style.opacity=1;tt.style.left=(e.offsetX+14)+'px';tt.style.top=(e.offsetY-32)+'px';tt.textContent=`${b.count} attempts · ${Math.round(efg*100)}% FG`;})
+        .on('mouseleave',()=>tt.style.opacity=0);
+    });
+  } else {
+    const g=svg.append('g').attr('class','shots-group');
+    const zn={rim:'At the Rim',corner3L:'Corner 3 (Left)',corner3R:'Corner 3 (Right)',wing3L:'Wing 3 (Left)',wing3R:'Wing 3 (Right)',aboveBreak:'Above Break 3',midL:'Mid-Range (Left)',midR:'Mid-Range (Right)'};
+    // Stagger shot dot entry for a nice "plotting" effect
+    shots.forEach((s, i) => {
+      const pos=ftToSvg(s.x,s.y);
+      g.append('circle')
+        .attr('cx',pos.sx).attr('cy',pos.sy).attr('r',0)
+        .attr('fill',s.made?'#f5a63d':'#6ab0d4')
+        .attr('stroke',s.made?'rgba(255,200,100,0.6)':'rgba(130,200,240,0.4)')
+        .attr('stroke-width',.8).attr('opacity',s.made?.88:.7)
+        .transition().delay(i * 3).duration(200)
+        .attr('r', 4.5);
+
+      g.selectAll('circle').on('mousemove', function(e, d) {
+        // attach after transition
+      });
+    });
+
+    // Re-attach events after a short delay
+    setTimeout(() => {
+      g.selectAll('circle').each(function(d, i) {
+        d3.select(this)
+          .on('mousemove', (e) => {
+            const s = shots[i];
+            if(!s) return;
+            tt.style.opacity=1;
+            tt.style.left=(e.offsetX+14)+'px';
+            tt.style.top=(e.offsetY-32)+'px';
+            tt.textContent=`${zn[s.zone]} · ${s.made?'✓ Made':'✗ Missed'}`;
+          })
+          .on('mouseleave', () => tt.style.opacity=0);
+      });
+    }, shots.length * 3 + 100);
+  }
+
+  const c=document.getElementById('zone-stats');c.innerHTML='';
+  data.zones.forEach(z=>{
+    const r=document.createElement('div');r.className='zone-row';
+    r.innerHTML=`<p class="zone-name">${z.name}</p><div class="zone-bar-wrap"><div class="zone-bar" style="width:0%"></div></div><span class="zone-pct">${z.pct}%</span>`;
+    c.appendChild(r);
+    setTimeout(()=>r.querySelector('.zone-bar').style.width=z.pct+'%',100);
+  });
+  document.getElementById('player-insight').textContent=data.insight;
+}
+
+const chartSvg=d3.select('#shot-chart');
+drawCourt(chartSvg);
+renderShotChart('allstar','dots');
+
+document.querySelectorAll('[data-player]').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('[data-player]').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');curP=b.dataset.player;renderShotChart(curP,curV);
+}));
+document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('[data-view]').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');curV=b.dataset.view;renderShotChart(curP,curV);
+}));
+
+/* ─── TREND CHARTS WITH ANIMATED DRAW-ON ─── */
+function renderTrendChart(animate){
+  const seasons=[2004,2006,2008,2010,2012,2014,2016,2018,2020,2022,2024],
+        rates=[17,18.5,20.2,22.4,25,28.1,31.6,35,38.5,39.3,39];
+  const m={t:24,r:24,b:36,l:44},w=420-m.l-m.r,h=220-m.t-m.b;
+  const sv=d3.select('#trend-chart'),g=sv.append('g').attr('transform',`translate(${m.l},${m.t})`);
+  const x=d3.scaleLinear().domain([2004,2024]).range([0,w]),
+        y=d3.scaleLinear().domain([10,45]).range([h,0]);
+
+  const df=sv.append('defs');
+  const gr=df.append('linearGradient').attr('id','tG').attr('x1','0').attr('y1','0').attr('x2','0').attr('y2','1');
+  gr.append('stop').attr('offset','0%').attr('stop-color','#e8912a').attr('stop-opacity',.22);
+  gr.append('stop').attr('offset','100%').attr('stop-color','#e8912a').attr('stop-opacity',0);
+
+  // Grid lines
+  y.ticks(5).forEach(t=>{
+    g.append('line').attr('x1',0).attr('y1',y(t)).attr('x2',w).attr('y2',y(t))
+      .attr('stroke','#1a1a1a').attr('stroke-width',1);
+  });
+
+  const pts=seasons.map((s,i)=>[s,rates[i]]);
+  const area=d3.area().x(d=>x(d[0])).y0(h).y1(d=>y(d[1])).curve(d3.curveCatmullRom);
+  const line=d3.line().x(d=>x(d[0])).y(d=>y(d[1])).curve(d3.curveCatmullRom);
+
+  g.append('path').datum(pts).attr('d',area).attr('fill','url(#tG)');
+  const path=g.append('path').datum(pts).attr('d',line).attr('fill','none').attr('stroke','#e8912a').attr('stroke-width',2.5);
+
+  if(animate){
+    const len=path.node().getTotalLength();
+    path.attr('stroke-dasharray',len).attr('stroke-dashoffset',len)
+      .transition().duration(1800).ease(d3.easeCubicInOut).attr('stroke-dashoffset',0);
+  }
+
+  g.append('g').attr('transform',`translate(0,${h})`).call(d3.axisBottom(x).tickValues([2004,2012,2016,2020,2024]).tickFormat(d3.format('d'))).call(a=>{a.selectAll('text').attr('fill','#555').attr('font-size','10px').attr('font-family','DM Mono');a.selectAll('.domain,.tick line').attr('stroke','#252525');});
+  g.append('g').call(d3.axisLeft(y).ticks(5).tickFormat(d=>d+'%')).call(a=>{a.selectAll('text').attr('fill','#555').attr('font-size','10px').attr('font-family','DM Mono');a.selectAll('.domain,.tick line').attr('stroke','#252525');});
+
+  [[2004,17,'17%'],[2024,39,'39%']].forEach(([sx,sy,lbl])=>{
+    g.append('circle').attr('cx',x(sx)).attr('cy',y(sy)).attr('r',4.5).attr('fill','#e8912a').attr('stroke','#0d0d0d').attr('stroke-width',2);
+    g.append('text').attr('x',x(sx)+(sx===2004?6:-6)).attr('y',y(sy)-8).attr('fill','#e8912a').attr('font-size','11px').attr('font-family','DM Mono').attr('text-anchor',sx===2004?'start':'end').text(lbl);
+  });
+}
+
+function renderEfficiencyChart(animate){
+  const seasons=[2004,2008,2012,2016,2020,2024],
+        mid=[36,32,29,22,17,14],rim=[22,24,26,29,32,35];
+  const m={t:24,r:24,b:36,l:44},w=420-m.l-m.r,h=220-m.t-m.b;
+  const sv=d3.select('#efficiency-chart'),g=sv.append('g').attr('transform',`translate(${m.l},${m.t})`);
+  const x=d3.scaleLinear().domain([2004,2024]).range([0,w]),
+        y=d3.scaleLinear().domain([0,42]).range([h,0]);
+  const line=d3.line().x(d=>x(d[0])).y(d=>y(d[1])).curve(d3.curveCatmullRom);
+
+  y.ticks(5).forEach(t=>{
+    g.append('line').attr('x1',0).attr('y1',y(t)).attr('x2',w).attr('y2',y(t))
+      .attr('stroke','#1a1a1a').attr('stroke-width',1);
+  });
+
+  const midPath=g.append('path').datum(seasons.map((s,i)=>[s,mid[i]])).attr('d',line).attr('fill','none').attr('stroke','#e84444').attr('stroke-width',2.5).attr('stroke-dasharray','5,4');
+  const rimPath=g.append('path').datum(seasons.map((s,i)=>[s,rim[i]])).attr('d',line).attr('fill','none').attr('stroke','#4caf7d').attr('stroke-width',2.5);
+
+  if(animate){
+    [midPath,rimPath].forEach((p,i)=>{
+      const len=p.node().getTotalLength();
+      p.attr('stroke-dasharray',len+','+len).attr('stroke-dashoffset',len)
+        .transition().delay(i*200).duration(1600).ease(d3.easeCubicInOut).attr('stroke-dashoffset',0);
+    });
+  }
+
+  g.append('g').attr('transform',`translate(0,${h})`).call(d3.axisBottom(x).tickValues([2004,2008,2012,2016,2020,2024]).tickFormat(d3.format('d'))).call(a=>{a.selectAll('text').attr('fill','#555').attr('font-size','10px').attr('font-family','DM Mono');a.selectAll('.domain,.tick line').attr('stroke','#252525');});
+  g.append('g').call(d3.axisLeft(y).ticks(5).tickFormat(d=>d+'%')).call(a=>{a.selectAll('text').attr('fill','#555').attr('font-size','10px').attr('font-family','DM Mono');a.selectAll('.domain,.tick line').attr('stroke','#252525');});
+
+  const lg=g.append('g').attr('transform',`translate(${w-110},8)`);
+  lg.append('line').attr('x2',16).attr('stroke','#e84444').attr('stroke-width',2).attr('stroke-dasharray','5,4');
+  lg.append('text').attr('x',22).attr('y',4).attr('fill','#666').attr('font-size','10px').attr('font-family','DM Mono').text('Mid-Range');
+  lg.append('line').attr('y1',18).attr('x2',16).attr('y2',18).attr('stroke','#4caf7d').attr('stroke-width',2);
+  lg.append('text').attr('x',22).attr('y',22).attr('fill','#666').attr('font-size','10px').attr('font-family','DM Mono').text('Rim');
+}
+
+/* ─── INTERSECTION OBSERVER — scroll-triggered animations ─── */
+const obs = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if(e.isIntersecting) {
+      e.target.classList.add('visible');
+      obs.unobserve(e.target);
+    }
+  });
+}, { threshold: 0.12 });
+document.querySelectorAll('.fade-in').forEach(el => obs.observe(el));
+
+/* ─── Animated zone bars ─── */
+let zoneAnimated = false;
+const zoneObs = new IntersectionObserver(entries => {
+  if(entries[0].isIntersecting && !zoneAnimated) {
+    zoneAnimated = true;
+    document.querySelectorAll('#zone-compare .zone-compare-row').forEach(row => {
+      const w04 = row.dataset['04'];
+      const w24 = row.dataset['24'];
+      const bars = row.querySelectorAll('.zc-bar');
+      setTimeout(() => {
+        bars[0].style.width = w04 + '%';
+        bars[1].style.width = w24 + '%';
+      }, 100);
+    });
+  }
+}, { threshold: 0.2 });
+const zoneEl = document.getElementById('zone-compare');
+if(zoneEl) zoneObs.observe(zoneEl);
+
+/* ─── Animated trend charts ─── */
+let trendsRendered = false;
+const trendObs = new IntersectionObserver(entries => {
+  if(entries[0].isIntersecting && !trendsRendered) {
+    trendsRendered = true;
+    renderTrendChart(true);
+    renderEfficiencyChart(true);
+  }
+}, { threshold: 0.2 });
+const trendEl = document.getElementById('trend-chart');
+if(trendEl) trendObs.observe(trendEl);
+
+/* ─── DEAD ZONE COURT ─── */
+function drawDeadZoneCourt() {
+  const svg = d3.select('#dz-court');
+  const W = 300, H = 320;
+
+  // Scale: court is 50ft wide, ~47ft half-court visible
+  // We map -25..25 ft → 0..300px, 0..47 ft → 280px (top=0 is baseline)
+  const scX = d => (d + 25) * (W / 50);
+  const scY = d => H - 10 - (d / 47) * (H - 20);
+
+  // Background
+  const defs = svg.append('defs');
+  const bg = defs.append('linearGradient').attr('id','dzBg').attr('x1','0').attr('y1','0').attr('x2','0').attr('y2','1');
+  bg.append('stop').attr('offset','0%').attr('stop-color','#1a1008');
+  bg.append('stop').attr('offset','100%').attr('stop-color','#100b04');
+  svg.append('rect').attr('width', W).attr('height', H).attr('fill','url(#dzBg)');
+
+  // ── ZONE FILLS ──
+  const zoneG = svg.append('g').attr('class','zones');
+
+  // Rim zone (restricted area ~4ft radius)
+  zoneG.append('path')
+    .attr('d', `M ${scX(-4)} ${scY(0)} A ${4*(W/50)} ${4*(W/50)} 0 0 1 ${scX(4)} ${scY(0)} L ${scX(4)} ${scY(0)} Z`)
+    .attr('fill', 'rgba(76,175,125,0)')
+    .attr('class','dz-rim-zone');
+
+  // Full rim area (everything inside ~7ft)
+  zoneG.append('circle')
+    .attr('cx', scX(0)).attr('cy', scY(0))
+    .attr('r', 7 * (W/50))
+    .attr('fill', 'rgba(76,175,125,0)')
+    .attr('class', 'dz-anim');
+
+  // Corner 3 left
+  zoneG.append('rect')
+    .attr('x', scX(-25)).attr('y', scY(14))
+    .attr('width', scX(-22) - scX(-25))
+    .attr('height', scY(0) - scY(14))
+    .attr('fill', 'rgba(76,175,125,0)')
+    .attr('class', 'dz-anim');
+
+  // Corner 3 right
+  zoneG.append('rect')
+    .attr('x', scX(22)).attr('y', scY(14))
+    .attr('width', scX(25) - scX(22))
+    .attr('height', scY(0) - scY(14))
+    .attr('fill', 'rgba(76,175,125,0)')
+    .attr('class', 'dz-anim');
+
+  // Dead zone (mid-range) — left side
+  zoneG.append('rect')
+    .attr('x', scX(-22)).attr('y', scY(19))
+    .attr('width', scX(-7) - scX(-22))
+    .attr('height', scY(7) - scY(19))
+    .attr('fill', 'rgba(232,68,68,0)')
+    .attr('class', 'dz-dead');
+
+  // Dead zone — right side
+  zoneG.append('rect')
+    .attr('x', scX(7)).attr('y', scY(19))
+    .attr('width', scX(22) - scX(7))
+    .attr('height', scY(7) - scY(19))
+    .attr('fill', 'rgba(232,68,68,0)')
+    .attr('class', 'dz-dead');
+
+  // Dead zone — middle band (above paint, below arc)
+  zoneG.append('rect')
+    .attr('x', scX(-7)).attr('y', scY(23))
+    .attr('width', scX(7) - scX(-7))
+    .attr('height', scY(19) - scY(23))
+    .attr('fill', 'rgba(232,68,68,0)')
+    .attr('class', 'dz-dead');
+
+  // Above-break 3 zone (arc area)
+  const arcR = 23.75 * (W/50);
+  const arcCX = scX(0), arcCY = scY(0);
+  const arcStartAngle = Math.PI; // left
+  const arcEndAngle = 0;         // right
+  const arcTopY = arcCY - arcR;
+  zoneG.append('path')
+    .attr('d', `M ${scX(-22)} ${scY(14)} A ${arcR} ${arcR} 0 0 1 ${scX(22)} ${scY(14)} L ${scX(22)} ${arcTopY + 28} A ${arcR} ${arcR} 0 0 0 ${scX(-22)} ${arcTopY + 28} Z`)
+    .attr('fill', 'rgba(232,145,42,0)')
+    .attr('class', 'dz-arc');
+
+  // Paint (non-rim)
+  zoneG.append('rect')
+    .attr('x', scX(-8)).attr('y', scY(19))
+    .attr('width', scX(8) - scX(-8))
+    .attr('height', scY(7) - scY(19))
+    .attr('fill', 'rgba(90,90,100,0)')
+    .attr('class', 'dz-paint');
+
+  // ── COURT LINES ──
+  const lineG = svg.append('g');
+  const LC = '#b08030', LO = 0.7, LW = 1.2;
+  const ln = (x1,y1,x2,y2) => lineG.append('line').attr('x1',x1).attr('y1',y1).attr('x2',x2).attr('y2',y2).attr('stroke',LC).attr('stroke-width',LW).attr('opacity',LO);
+
+  // Baseline
+  ln(scX(-25), scY(0), scX(25), scY(0));
+  // Sidelines (partial)
+  ln(scX(-25), scY(0), scX(-25), scY(45));
+  ln(scX(25), scY(0), scX(25), scY(45));
+
+  // Paint box
+  lineG.append('rect')
+    .attr('x', scX(-8)).attr('y', scY(19))
+    .attr('width', scX(8)-scX(-8))
+    .attr('height', scY(0)-scY(19))
+    .attr('fill','none').attr('stroke',LC).attr('stroke-width',LW).attr('opacity',LO);
+
+  // Free throw circle
+  const ftCX = scX(0), ftCY = scY(19), ftR = 6*(W/50);
+  lineG.append('circle').attr('cx',ftCX).attr('cy',ftCY).attr('r',ftR)
+    .attr('fill','none').attr('stroke',LC).attr('stroke-width',LW).attr('opacity',LO*0.75)
+    .attr('stroke-dasharray','5,4');
+
+  // Restricted area arc
+  const raR = 4*(W/50), bX = scX(0), bY = scY(0);
+  lineG.append('path')
+    .attr('d', `M ${bX - raR} ${bY} A ${raR} ${raR} 0 0 1 ${bX + raR} ${bY}`)
+    .attr('fill','none').attr('stroke',LC).attr('stroke-width',LW).attr('opacity',LO);
+
+  // 3-point arc
+  const arcCXl = scX(-22), arcCXr = scX(22);
+  ln(arcCXl, scY(0), arcCXl, scY(14));
+  ln(arcCXr, scY(0), arcCXr, scY(14));
+  lineG.append('path')
+    .attr('d', `M ${arcCXl} ${scY(14)} A ${arcR} ${arcR} 0 0 1 ${arcCXr} ${scY(14)}`)
+    .attr('fill','none').attr('stroke',LC).attr('stroke-width',LW+0.3).attr('opacity',LO);
+
+  // Basket
+  lineG.append('circle').attr('cx',scX(0)).attr('cy',scY(0)).attr('r', 0.75*(W/50))
+    .attr('fill','none').attr('stroke',LC).attr('stroke-width',1.5).attr('opacity',.9);
+
+  // ── LABELS ──
+  const labelG = svg.append('g');
+  const lbl = (text, x, y, color, size='9px', opacity=0.9) => {
+    labelG.append('text')
+      .attr('x', scX(x)).attr('y', scY(y))
+      .text(text)
+      .attr('fill', color).attr('opacity', opacity)
+      .attr('font-size', size).attr('font-family','DM Mono,monospace')
+      .attr('text-anchor','middle').attr('letter-spacing','0.06em');
+  };
+
+  // "DEAD ZONE" label with pulse
+  const dzLabel = labelG.append('text')
+    .attr('x', scX(0)).attr('y', scY(13))
+    .text('DEAD ZONE')
+    .attr('fill','#e84444').attr('opacity', 0)
+    .attr('font-size','10px').attr('font-family','DM Mono,monospace')
+    .attr('text-anchor','middle').attr('letter-spacing','0.14em').attr('font-weight','500')
+    .attr('class','dz-label-dead');
+
+  const dzSub = labelG.append('text')
+    .attr('x', scX(0)).attr('y', scY(10.5))
+    .text('0.78–0.88 pts')
+    .attr('fill','#e84444').attr('opacity', 0)
+    .attr('font-size','8px').attr('font-family','DM Mono,monospace')
+    .attr('text-anchor','middle').attr('letter-spacing','0.06em')
+    .attr('class','dz-label-dead');
+
+  // Rim label
+  const rimLabel = labelG.append('text')
+    .attr('x', scX(0)).attr('y', scY(4))
+    .text('RIM')
+    .attr('fill','#4caf7d').attr('opacity', 0)
+    .attr('font-size','9px').attr('font-family','DM Mono,monospace')
+    .attr('text-anchor','middle').attr('letter-spacing','0.12em')
+    .attr('class','dz-label-good');
+
+  const rimSub = labelG.append('text')
+    .attr('x', scX(0)).attr('y', scY(2))
+    .text('1.22 pts')
+    .attr('fill','#4caf7d').attr('opacity', 0)
+    .attr('font-size','8px').attr('font-family','DM Mono,monospace')
+    .attr('text-anchor','middle')
+    .attr('class','dz-label-good');
+
+  // Corner label (left)
+  const crnLabel = labelG.append('text')
+    .attr('x', scX(-23.5)).attr('y', scY(8))
+    .text('CORNER')
+    .attr('fill','#4caf7d').attr('opacity', 0)
+    .attr('font-size','7.5px').attr('font-family','DM Mono,monospace')
+    .attr('text-anchor','middle').attr('letter-spacing','0.08em')
+    .attr('class','dz-label-good');
+
+  const crnSub = labelG.append('text')
+    .attr('x', scX(-23.5)).attr('y', scY(5.5))
+    .text('1.12 pts')
+    .attr('fill','#4caf7d').attr('opacity', 0)
+    .attr('font-size','7.5px').attr('font-family','DM Mono,monospace')
+    .attr('text-anchor','middle')
+    .attr('class','dz-label-good');
+
+  // Corner label (right)
+  labelG.append('text')
+    .attr('x', scX(23.5)).attr('y', scY(8))
+    .text('CORNER')
+    .attr('fill','#4caf7d').attr('opacity', 0)
+    .attr('font-size','7.5px').attr('font-family','DM Mono,monospace')
+    .attr('text-anchor','middle').attr('letter-spacing','0.08em')
+    .attr('class','dz-label-good');
+
+  labelG.append('text')
+    .attr('x', scX(23.5)).attr('y', scY(5.5))
+    .text('1.12 pts')
+    .attr('fill','#4caf7d').attr('opacity', 0)
+    .attr('font-size','7.5px').attr('font-family','DM Mono,monospace')
+    .attr('text-anchor','middle')
+    .attr('class','dz-label-good');
+}
+
+drawDeadZoneCourt();
+
+/* ─── Dead zone animate on scroll ─── */
+let dzAnimated = false;
+const dzObs = new IntersectionObserver(entries => {
+  if(entries[0].isIntersecting && !dzAnimated) {
+    dzAnimated = true;
+    const svg = d3.select('#dz-court');
+
+    // Animate zone fills
+    svg.selectAll('.dz-anim')
+      .transition().delay(200).duration(700).ease(d3.easeCubicOut)
+      .attr('fill', 'rgba(76,175,125,0.22)');
+
+    svg.select('circle.dz-anim')
+      .transition().delay(200).duration(700)
+      .attr('fill', 'rgba(76,175,125,0.28)');
+
+    svg.selectAll('.dz-dead')
+      .transition().delay(500).duration(700).ease(d3.easeCubicOut)
+      .attr('fill', 'rgba(232,68,68,0.22)');
+
+    svg.selectAll('.dz-arc')
+      .transition().delay(300).duration(700).ease(d3.easeCubicOut)
+      .attr('fill', 'rgba(232,145,42,0.16)');
+
+    svg.selectAll('.dz-paint')
+      .transition().delay(400).duration(600)
+      .attr('fill', 'rgba(90,90,100,0.22)');
+
+    // Animate labels
+    svg.selectAll('.dz-label-good')
+      .transition().delay(700).duration(500)
+      .attr('opacity', 0.85);
+
+    svg.selectAll('.dz-label-dead')
+      .transition().delay(900).duration(600)
+      .attr('opacity', 0.92);
+  }
+}, { threshold: 0.3 });
+const dzEl = document.getElementById('dz-court');
+if(dzEl) dzObs.observe(dzEl);
+</script>
+</body>
+</html>
